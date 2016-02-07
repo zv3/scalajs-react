@@ -58,6 +58,7 @@ object Extra {
     final lazy val big      = "big".tag[dom.html.Element]
     final lazy val dialog   = "dialog".tag[dom.html.Element]
     final lazy val menuitem = "menuitem".tag[dom.html.Element]
+    final lazy val picture  = "picture".tag[dom.html.Element]
   }
 
   trait Attrs {
