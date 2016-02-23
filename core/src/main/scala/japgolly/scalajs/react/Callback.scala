@@ -8,7 +8,8 @@ import scala.concurrent.duration.{FiniteDuration, MILLISECONDS}
 import scala.scalajs.js
 import js.{undefined, UndefOr, Function0 => JFn0, Function1 => JFn1}
 import js.timers.RawTimers
-import scala.util.{Failure, Success}
+import scala.util.{Try, Failure, Success}
+import CallbackTo.MapGuard
 
 /**
  * A callback with no return value. Equivalent to `() => Unit`.
@@ -257,6 +258,21 @@ object CallbackTo {
     def toFlatFuture(implicit ec: ExecutionContext): Future[A] =
       c.toFuture.flatMap(identity)
   }
+
+  implicit def callbackContravariance[A, B >: A](c: CallbackTo[A]): CallbackTo[B] =
+    c.widen
+
+  /**
+   * Prevents `scalac` discarding the result of a map function when the final result is `Callback`.
+   *
+   * See https://github.com/japgolly/scalajs-react/issues/256
+   *
+   * @since 0.11.0
+   */
+  sealed trait MapGuard[A] { type Out = A }
+
+  @inline implicit def MapGuard[A]: MapGuard[A] =
+    null.asInstanceOf[MapGuard[A]]
 }
 
 // =====================================================================================================================
@@ -287,13 +303,16 @@ final class CallbackTo[A] private[react] (private[CallbackTo] val f: () => A) ex
   @inline def runNow(): A =
     f()
 
-  def map[B](g: A => B): CallbackTo[B] =
+  @inline def widen[B >: A]: CallbackTo[B] =
+    new CallbackTo(f)
+
+  def map[B](g: A => B)(implicit ev: MapGuard[B]): CallbackTo[ev.Out] =
     new CallbackTo(() => g(f()))
 
   /**
    * Alias for `map`.
    */
-  @inline def |>[B](g: A => B): CallbackTo[B] =
+  @inline def |>[B](g: A => B)(implicit ev: MapGuard[B]): CallbackTo[ev.Out] =
     map(g)
 
   def flatMap[B](g: A => CallbackTo[B]): CallbackTo[B] =
@@ -382,9 +401,17 @@ final class CallbackTo[A] private[react] (private[CallbackTo] val f: () => A) ex
     )
 
   /**
+   * Wraps this callback in a scala `Try` with catches what it considers non-fatal errors.
+   *
+   * Use [[attempt]] to catch everything.
+   */
+  def attemptTry: CallbackTo[Try[A]] =
+    CallbackTo(Try(f()))
+
+  /**
    * Convenience-method to run additional code after this callback.
    */
-  def thenRun[B](runNext: => B): CallbackTo[B] =
+  def thenRun[B](runNext: => B)(implicit ev: MapGuard[B]): CallbackTo[ev.Out] =
     this >> CallbackTo(runNext)
 
   /**

@@ -2,6 +2,7 @@ package japgolly.scalajs.react
 
 import scala.annotation.tailrec
 import scala.collection.generic.CanBuildFrom
+import CallbackTo.MapGuard
 
 // TODO Document CallbackOption
 
@@ -125,7 +126,7 @@ object CallbackOption {
                            shiftKey: Boolean = false)
                           (switch  : PartialFunction[A, CallbackTo[B]]): CallbackOption[B] =
     for {
-      _  <- require(ReactKeyboardEvent.checkKeyMods(e, altKey, ctrlKey, metaKey, shiftKey))
+      _  <- require(e.pressedModifierKeys(altKey, ctrlKey, metaKey, shiftKey))
       cb <- matchPF(a)(switch)
       b  <- cb.toCBO
     } yield b
@@ -142,6 +143,9 @@ object CallbackOption {
       a <- co
       _ <- e.preventDefaultCB.toCBO
     } yield a
+
+  implicit def callbackOptionContravariance[A, B >: A](c: CallbackOption[A]): CallbackOption[B] =
+    c.widen
 }
 
 // =====================================================================================================================
@@ -159,6 +163,9 @@ object CallbackOption {
  */
 final class CallbackOption[A](private val cbfn: () => Option[A]) extends AnyVal {
   import CallbackOption.someUnit
+
+  @inline def widen[B >: A]: CallbackOption[B] =
+    new CallbackOption(cbfn)
 
   def get: CallbackTo[Option[A]] =
     CallbackTo lift cbfn
@@ -178,13 +185,13 @@ final class CallbackOption[A](private val cbfn: () => Option[A]) extends AnyVal 
       case Some(_) => None
     })
 
-  def map[B](f: A => B): CallbackOption[B] =
+  def map[B](f: A => B)(implicit ev: MapGuard[B]): CallbackOption[ev.Out] =
     CallbackOption(get.map(_ map f))
 
   /**
    * Alias for `map`.
    */
-  @inline def |>[B](f: A => B): CallbackOption[B] =
+  @inline def |>[B](f: A => B)(implicit ev: MapGuard[B]): CallbackOption[ev.Out] =
     map(f)
 
   def flatMapOption[B](f: A => Option[B]): CallbackOption[B] =
